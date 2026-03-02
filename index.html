@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>המסע אחרי הנמר - משחק בלשי</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a2e;
+  overflow: hidden;
+  touch-action: none;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+canvas {
+  display: block;
+  margin: 0 auto;
+}
+#touchControls {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 160px;
+  z-index: 100;
+  pointer-events: none;
+}
+.touch-btn {
+  position: absolute;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  border: 3px solid rgba(255,255,255,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: rgba(255,255,255,0.7);
+  pointer-events: all;
+  transition: background 0.1s;
+}
+.touch-btn:active, .touch-btn.active {
+  background: rgba(255,255,255,0.4);
+}
+#btn-left { bottom: 20px; left: 20px; }
+#btn-right { bottom: 20px; left: 110px; }
+#btn-jump { bottom: 20px; right: 20px; }
+#btn-action { bottom: 100px; right: 20px; font-size: 18px; width: 65px; height: 65px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="touchControls">
+  <div class="touch-btn" id="btn-left">◀</div>
+  <div class="touch-btn" id="btn-right">▶</div>
+  <div class="touch-btn" id="btn-jump">▲</div>
+  <div class="touch-btn" id="btn-action">⚡</div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// Responsive canvas
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Detect touch device
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+if (isTouchDevice) {
+  document.getElementById('touchControls').style.display = 'block';
+}
+
+// ============ GAME STATE ============
+const STATE = {
+  STORY_INTRO: 0,
+  STORY_DISCOVERY: 1,
+  PLAYING: 2,
+  BOSS_FIGHT: 3,
+  WIN: 4,
+  GAME_OVER: 5
+};
+
+let gameState = STATE.STORY_INTRO;
+let storyPage = 0;
+let storyTimer = 0;
+let fadeAlpha = 0;
+let screenShake = 0;
+
+// Player
+let player = {
+  x: 100, y: 0, vy: 0, vx: 0,
+  width: 40, height: 50,
+  grounded: false,
+  diamonds: 0, stars: 0,
+  hp: 5, maxHp: 5,
+  invincible: 0,
+  character: 'villager', // villager or jj
+  throwing: false, throwTimer: 0,
+  facingRight: true
+};
+
+// Camera
+let camera = { x: 0, y: 0 };
+
+// Level
+const GRAVITY = 0.6;
+const JUMP_FORCE = -13;
+const MOVE_SPEED = 5;
+const GROUND_Y_OFFSET = 120;
+
+let platforms = [];
+let collectibles = [];
+let enemies = [];
+let knives = [];
+let particles = [];
+let thrownItems = [];
+let levelLength = 8000;
+let bossSpawned = false;
+let boss = null;
+
+// Input
+let keys = {};
+let touchState = { left: false, right: false, jump: false, action: false };
+
+// ============ STORY CONTENT ============
+const storyPages = [
+  {
+    phase: STATE.STORY_INTRO,
+    lines: [
+      "שלושה חברים הכי טובים בעולם:",
+      "וילג׳ר 🥹  ג׳יי ג׳יי 😂  ומייקי 😵",
+      "",
+      "הם עשו הכל ביחד.",
+      "עד היום ההוא..."
+    ]
+  },
+  {
+    phase: STATE.STORY_DISCOVERY,
+    lines: [
+      "יום אחד, וילג׳ר וג׳יי ג׳יי יצאו לטיול ביער.",
+      "הם מצאו את מייקי שוכב על הקרקע 😵",
+      "סימני טפרים ענקיים היו בכל מקום.",
+      "",
+      "\"זה היה הנמר!\" לחש וילג׳ר 🥹",
+      "\"אנחנו חייבים למצוא אותו!\" צעק ג׳יי ג׳יי 😂",
+      "",
+      "🔍 המסע מתחיל עכשיו!"
+    ]
+  }
+];
+
+const instructionLines = [
+  "⌨️ חצים / WASD — תזוזה וקפיצה",
+  "📱 כפתורים על המסך בטאבלט",
+  "💎 אספו יהלומים וכוכבים!",
+  "⚠️ היזהרו מחיות ומסכינים!",
+  "🐅 כשתמצאו את הנמר — לחצו רווח!",
+  "",
+  "לחצו להתחיל ▶"
+];
+
+// ============ LEVEL GENERATION ============
+function generateLevel() {
+  platforms = [];
+  collectibles = [];
+  enemies = [];
+  knives = [];
+  particles = [];
+  thrownItems = [];
+  bossSpawned = false;
+  boss = null;
+
+  const groundY = canvas.height - GROUND_Y_OFFSET;
+
+  // Ground segments
+  for (let x = 0; x < levelLength; x += 200) {
+    platforms.push({ x, y: groundY, w: 200, h: 40, type: 'ground' });
+  }
+
+  // Floating platforms — lower and easier at start, higher later
+  const platZones = [
+    { start: 0.03, end: 0.30, count: 18, maxHeight: 70,  minWidth: 110 }, // easy: low, wide
+    { start: 0.30, end: 0.55, count: 16, maxHeight: 130, minWidth: 90 },  // medium
+    { start: 0.55, end: 0.80, count: 14, maxHeight: 180, minWidth: 80 },  // hard
+    { start: 0.80, end: 0.95, count: 10, maxHeight: 200, minWidth: 75 }   // very hard
+  ];
+  platZones.forEach(zone => {
+    let zoneStart = zone.start * levelLength;
+    let zoneLen = (zone.end - zone.start) * levelLength;
+    for (let i = 0; i < zone.count; i++) {
+      let px = zoneStart + Math.random() * zoneLen;
+      let py = groundY - 60 - Math.random() * zone.maxHeight;
+      let pw = zone.minWidth + Math.random() * 60;
+      platforms.push({ x: px, y: py, w: pw, h: 18, type: 'float' });
+    }
+  });
+
+  // Diamonds, stars, and hearts
+  for (let i = 0; i < 80; i++) {
+    let cx = 300 + Math.random() * (levelLength - 600);
+    let cy = groundY - 40 - Math.random() * 250;
+    let roll = Math.random();
+    let type;
+    if (roll < 0.03) type = 'heart';        // 3% hearts
+    else if (roll < 0.48) type = 'diamond'; // 45% diamonds
+    else type = 'star';                     // 52% stars
+    collectibles.push({
+      x: cx, y: cy,
+      type: type,
+      collected: false,
+      bobOffset: Math.random() * Math.PI * 2
+    });
+  }
+
+  // Enemies with gradual difficulty — sparse at start, dense near boss
+  const animalTypes = ['snake', 'spider', 'wolf', 'bat'];
+  // Divide level into zones: 0-25% easy, 25-50% medium, 50-75% hard, 75-100% very hard
+  const enemyZones = [
+    { start: 0.05, end: 0.25, count: 3,  speedMax: 1.2 },
+    { start: 0.25, end: 0.50, count: 5,  speedMax: 1.8 },
+    { start: 0.50, end: 0.75, count: 7,  speedMax: 2.2 },
+    { start: 0.75, end: 0.92, count: 5, speedMax: 2.5 }
+  ];
+  enemyZones.forEach(zone => {
+    let zoneStart = zone.start * levelLength;
+    let zoneEnd = zone.end * levelLength;
+    let zoneLen = zoneEnd - zoneStart;
+    for (let i = 0; i < zone.count; i++) {
+      let ex = zoneStart + Math.random() * zoneLen;
+      let ey = groundY - 30;
+      let type = animalTypes[Math.floor(Math.random() * animalTypes.length)];
+      if (type === 'bat') ey = groundY - 100 - Math.random() * 120;
+      enemies.push({
+        x: ex, y: ey,
+        type: type,
+        width: 35, height: 35,
+        vx: (Math.random() > 0.5 ? 1 : -1) * (0.8 + Math.random() * zone.speedMax),
+        startX: ex,
+        range: 100 + Math.random() * 150,
+        alive: true,
+        animTimer: Math.random() * 100
+      });
+    }
+  });
+
+  // Knives — also gradual: none at start, more later
+  const knifeZones = [
+    { start: 0.20, end: 0.50, count: 3 },
+    { start: 0.50, end: 0.75, count: 5 },
+    { start: 0.75, end: 0.92, count: 4 }
+  ];
+  knifeZones.forEach(zone => {
+    let zoneStart = zone.start * levelLength;
+    let zoneEnd = zone.end * levelLength;
+    let zoneLen = zoneEnd - zoneStart;
+    for (let i = 0; i < zone.count; i++) {
+      let kx = zoneStart + Math.random() * zoneLen;
+      let ky = groundY - 15;
+      knives.push({
+        x: kx, y: ky,
+        width: 12, height: 30,
+        bobOffset: Math.random() * Math.PI * 2,
+        glow: 0
+      });
+    }
+  });
+
+  // Reset player
+  player.x = 100;
+  player.y = groundY - player.height - 10;
+  player.vy = 0;
+  player.vx = 0;
+  player.diamonds = 0;
+  player.stars = 0;
+  player.hp = 5;
+  player.invincible = 0;
+  player.throwing = false;
+  player.throwTimer = 0;
+  player.facingRight = true;
+}
+
+// ============ DRAWING HELPERS ============
+function drawText(text, x, y, size, color, align = 'center', stroke = false) {
+  ctx.font = `bold ${size}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  if (stroke) {
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 4;
+    ctx.strokeText(text, x, y);
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+function drawRoundRect(x, y, w, h, r, fill, strokeColor) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = 2; ctx.stroke(); }
+}
+
+// ============ CHARACTER DRAWING ============
+function drawVillager(x, y, w, h, facingRight) {
+  const dir = facingRight ? 1 : -1;
+  // Body (brown shirt)
+  ctx.fillStyle = '#8B6914';
+  ctx.fillRect(x + 8, y + 18, w - 16, h - 28);
+  // Head
+  ctx.fillStyle = '#D2A06B';
+  ctx.beginPath();
+  ctx.arc(x + w/2, y + 12, 14, 0, Math.PI * 2);
+  ctx.fill();
+  // Eyes
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x + w/2 - 5 * dir + (facingRight ? 2 : -6), y + 9, 3, 4);
+  ctx.fillRect(x + w/2 + 2 * dir + (facingRight ? 2 : -6), y + 9, 3, 4);
+  // Nose
+  ctx.fillStyle = '#B8895A';
+  ctx.fillRect(x + w/2 - 1 + dir * 3, y + 14, 4, 3);
+  // Legs
+  ctx.fillStyle = '#5C4033';
+  ctx.fillRect(x + 10, y + h - 12, 8, 12);
+  ctx.fillRect(x + w - 18, y + h - 12, 8, 12);
+}
+
+function drawJJ(x, y, w, h, facingRight) {
+  const dir = facingRight ? 1 : -1;
+  // Body (blue shirt)
+  ctx.fillStyle = '#2266CC';
+  ctx.fillRect(x + 8, y + 18, w - 16, h - 28);
+  // Head
+  ctx.fillStyle = '#E8C49A';
+  ctx.beginPath();
+  ctx.arc(x + w/2, y + 12, 14, 0, Math.PI * 2);
+  ctx.fill();
+  // Hair
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.arc(x + w/2, y + 6, 14, Math.PI, 0);
+  ctx.fill();
+  // Eyes
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x + w/2 - 5 * dir + (facingRight ? 2 : -6), y + 9, 3, 4);
+  ctx.fillRect(x + w/2 + 2 * dir + (facingRight ? 2 : -6), y + 9, 3, 4);
+  // Mouth
+  ctx.fillStyle = '#C44';
+  ctx.fillRect(x + w/2 - 2 + dir * 2, y + 17, 5, 2);
+  // Legs
+  ctx.fillStyle = '#1A1A5C';
+  ctx.fillRect(x + 10, y + h - 12, 8, 12);
+  ctx.fillRect(x + w - 18, y + h - 12, 8, 12);
+}
+
+function drawPlayer(p) {
+  let sx = p.x - camera.x;
+  let sy = p.y - camera.y;
+
+  if (p.invincible > 0 && Math.floor(p.invincible * 10) % 2 === 0) return;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(sx + p.width/2, sy + p.height + 2, 18, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawVillager(sx, sy, p.width, p.height, p.facingRight);
+
+  // JJ follows right next to Villager (tight together)
+  let jjx = sx + (p.facingRight ? -18 : 18);
+  let jjy = sy + 2;
+  drawJJ(jjx, jjy, p.width - 4, p.height - 4, p.facingRight);
+}
+
+// ============ ENEMY DRAWING ============
+function drawEnemy(e) {
+  let ex = e.x - camera.x;
+  let ey = e.y - camera.y;
+  if (ex < -50 || ex > canvas.width + 50) return;
+
+  e.animTimer += 0.05;
+
+  switch(e.type) {
+    case 'snake':
+      ctx.fillStyle = '#2D8B2D';
+      for (let i = 0; i < 5; i++) {
+        let sx2 = ex + i * 8;
+        let sy2 = ey + Math.sin(e.animTimer + i * 0.8) * 4;
+        ctx.beginPath();
+        ctx.arc(sx2, sy2 + 15, 6 - i * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#F00';
+      ctx.fillRect(ex - 3, ey + 12, 6, 2); // tongue
+      ctx.fillStyle = '#FF0';
+      ctx.beginPath(); ctx.arc(ex + 2, ey + 10, 2, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'spider':
+      ctx.fillStyle = '#1A1A1A';
+      ctx.beginPath();
+      ctx.arc(ex + 15, ey + 15, 12, 0, Math.PI * 2);
+      ctx.fill();
+      // Legs
+      for (let i = 0; i < 4; i++) {
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        let angle = (i / 4) * Math.PI - Math.PI * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(ex + 15, ey + 15);
+        let legLen = 18 + Math.sin(e.animTimer + i) * 3;
+        ctx.lineTo(ex + 15 + Math.cos(angle) * legLen, ey + 15 + Math.sin(angle) * legLen);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ex + 15, ey + 15);
+        ctx.lineTo(ex + 15 - Math.cos(angle) * legLen, ey + 15 + Math.sin(angle) * legLen);
+        ctx.stroke();
+      }
+      // Eyes (8 eyes!)
+      ctx.fillStyle = '#F22';
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.arc(ex + 10 + i * 4, ey + 10, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    case 'wolf':
+      ctx.fillStyle = '#555';
+      ctx.fillRect(ex, ey + 5, 35, 22);
+      // Head
+      ctx.fillStyle = '#666';
+      let headX = e.vx > 0 ? ex + 28 : ex - 5;
+      ctx.beginPath();
+      ctx.arc(headX + 5, ey + 10, 10, 0, Math.PI * 2);
+      ctx.fill();
+      // Eye
+      ctx.fillStyle = '#FF4444';
+      ctx.beginPath();
+      ctx.arc(headX + (e.vx > 0 ? 9 : 1), ey + 8, 3, 0, Math.PI * 2);
+      ctx.fill();
+      // Legs
+      ctx.fillStyle = '#444';
+      ctx.fillRect(ex + 3, ey + 25, 5, 10);
+      ctx.fillRect(ex + 26, ey + 25, 5, 10);
+      break;
+    case 'bat':
+      ctx.fillStyle = '#2A0A3A';
+      ctx.beginPath();
+      ctx.arc(ex + 15, ey + 15, 8, 0, Math.PI * 2);
+      ctx.fill();
+      // Wings
+      let wingSpread = 15 + Math.sin(e.animTimer * 3) * 8;
+      ctx.beginPath();
+      ctx.moveTo(ex + 15, ey + 12);
+      ctx.lineTo(ex - wingSpread + 15, ey + 5);
+      ctx.lineTo(ex + 5, ey + 20);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(ex + 15, ey + 12);
+      ctx.lineTo(ex + wingSpread + 15, ey + 5);
+      ctx.lineTo(ex + 25, ey + 20);
+      ctx.fill();
+      // Eyes
+      ctx.fillStyle = '#F00';
+      ctx.beginPath(); ctx.arc(ex + 12, ey + 13, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + 18, ey + 13, 2, 0, Math.PI * 2); ctx.fill();
+      break;
+  }
+}
+
+// ============ KNIFE DRAWING ============
+function drawKnife(k) {
+  let kx = k.x - camera.x;
+  let ky = k.y - camera.y + Math.sin(Date.now() * 0.003 + k.bobOffset) * 3;
+  if (kx < -20 || kx > canvas.width + 20) return;
+
+  // Glow
+  k.glow = (k.glow + 0.05) % (Math.PI * 2);
+  let glowAlpha = 0.2 + Math.sin(k.glow) * 0.15;
+  ctx.fillStyle = `rgba(255, 50, 50, ${glowAlpha})`;
+  ctx.beginPath();
+  ctx.arc(kx + 6, ky + 10, 18, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Blade
+  ctx.fillStyle = '#C0C8D0';
+  ctx.beginPath();
+  ctx.moveTo(kx + 6, ky - 5);
+  ctx.lineTo(kx + 12, ky + 18);
+  ctx.lineTo(kx, ky + 18);
+  ctx.closePath();
+  ctx.fill();
+  // Edge highlight
+  ctx.fillStyle = '#E8EEF4';
+  ctx.beginPath();
+  ctx.moveTo(kx + 6, ky - 3);
+  ctx.lineTo(kx + 9, ky + 16);
+  ctx.lineTo(kx + 4, ky + 16);
+  ctx.closePath();
+  ctx.fill();
+  // Handle
+  ctx.fillStyle = '#5C3317';
+  ctx.fillRect(kx + 1, ky + 18, 10, 12);
+  ctx.fillStyle = '#DAA520';
+  ctx.fillRect(kx, ky + 17, 12, 3);
+}
+
+// ============ COLLECTIBLE DRAWING ============
+function drawCollectible(c) {
+  if (c.collected) return;
+  let cx2 = c.x - camera.x;
+  let cy2 = c.y - camera.y + Math.sin(Date.now() * 0.004 + c.bobOffset) * 5;
+  if (cx2 < -20 || cx2 > canvas.width + 20) return;
+
+  if (c.type === 'diamond') {
+    // Diamond glow
+    ctx.fillStyle = 'rgba(0, 200, 255, 0.15)';
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, 16, 0, Math.PI * 2);
+    ctx.fill();
+    // Diamond shape
+    ctx.fillStyle = '#00D4FF';
+    ctx.beginPath();
+    ctx.moveTo(cx2, cy2 - 12);
+    ctx.lineTo(cx2 + 10, cy2 - 2);
+    ctx.lineTo(cx2, cy2 + 12);
+    ctx.lineTo(cx2 - 10, cy2 - 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#88EEFF';
+    ctx.beginPath();
+    ctx.moveTo(cx2, cy2 - 10);
+    ctx.lineTo(cx2 + 5, cy2 - 2);
+    ctx.lineTo(cx2, cy2 + 5);
+    ctx.closePath();
+    ctx.fill();
+  } else if (c.type === 'heart') {
+    // Heart glow
+    ctx.fillStyle = 'rgba(255, 50, 80, 0.2)';
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, 16, 0, Math.PI * 2);
+    ctx.fill();
+    // Heart shape
+    ctx.fillStyle = '#FF3366';
+    ctx.beginPath();
+    ctx.moveTo(cx2, cy2 + 8);
+    ctx.bezierCurveTo(cx2 - 12, cy2 - 2, cx2 - 12, cy2 - 12, cx2, cy2 - 6);
+    ctx.bezierCurveTo(cx2 + 12, cy2 - 12, cx2 + 12, cy2 - 2, cx2, cy2 + 8);
+    ctx.fill();
+    // Shine
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.beginPath();
+    ctx.arc(cx2 - 4, cy2 - 6, 3, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Star glow
+    ctx.fillStyle = 'rgba(255, 220, 0, 0.15)';
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, 16, 0, Math.PI * 2);
+    ctx.fill();
+    // Star
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      let angle = (i * 4 * Math.PI / 5) - Math.PI / 2;
+      let r = i === 0 ? 0 : 12;
+      if (i === 0) ctx.moveTo(cx2 + 12 * Math.cos(angle), cy2 + 12 * Math.sin(angle));
+      else ctx.lineTo(cx2 + 12 * Math.cos(angle), cy2 + 12 * Math.sin(angle));
+      let angle2 = angle + 2 * Math.PI / 5;
+      ctx.lineTo(cx2 + 5 * Math.cos(angle + Math.PI / 5), cy2 + 5 * Math.sin(angle + Math.PI / 5));
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#FFEE88';
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ============ BOSS (TIGER) ============
+function drawBoss(b) {
+  let bx = b.x - camera.x;
+  let by = b.y - camera.y;
+
+  // Danger aura
+  let auraAlpha = 0.1 + Math.sin(Date.now() * 0.005) * 0.05;
+  ctx.fillStyle = `rgba(255, 50, 0, ${auraAlpha})`;
+  ctx.beginPath();
+  ctx.arc(bx + 40, by + 35, 60, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  ctx.fillStyle = '#E8881C';
+  ctx.fillRect(bx + 10, by + 20, 60, 35);
+  // Stripes
+  ctx.fillStyle = '#222';
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(bx + 18 + i * 14, by + 22, 5, 30);
+  }
+  // Head
+  ctx.fillStyle = '#F0992E';
+  ctx.beginPath();
+  ctx.arc(bx + 72, by + 25, 22, 0, Math.PI * 2);
+  ctx.fill();
+  // Ears
+  ctx.fillStyle = '#E8881C';
+  ctx.beginPath(); ctx.arc(bx + 60, by + 6, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(bx + 84, by + 6, 8, 0, Math.PI * 2); ctx.fill();
+  // Eyes (menacing)
+  ctx.fillStyle = '#FF0';
+  ctx.beginPath(); ctx.arc(bx + 66, by + 20, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(bx + 78, by + 20, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(bx + 67, by + 20, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(bx + 79, by + 20, 2.5, 0, Math.PI * 2); ctx.fill();
+  // Nose
+  ctx.fillStyle = '#C44';
+  ctx.beginPath(); ctx.arc(bx + 72, by + 28, 4, 0, Math.PI * 2); ctx.fill();
+  // Mouth / fangs
+  ctx.fillStyle = '#FFF';
+  ctx.beginPath();
+  ctx.moveTo(bx + 66, by + 35);
+  ctx.lineTo(bx + 68, by + 42);
+  ctx.lineTo(bx + 70, by + 35);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(bx + 74, by + 35);
+  ctx.lineTo(bx + 76, by + 42);
+  ctx.lineTo(bx + 78, by + 35);
+  ctx.fill();
+  // Tail
+  ctx.strokeStyle = '#E8881C';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(bx + 10, by + 30);
+  let tailWave = Math.sin(Date.now() * 0.005) * 15;
+  ctx.quadraticCurveTo(bx - 10, by + 15 + tailWave, bx - 15, by + 25);
+  ctx.stroke();
+  // Legs
+  ctx.fillStyle = '#D07718';
+  ctx.fillRect(bx + 15, by + 52, 12, 18);
+  ctx.fillRect(bx + 50, by + 52, 12, 18);
+  // Claws
+  ctx.fillStyle = '#FFF';
+  for (let i = 0; i < 3; i++) {
+    ctx.fillRect(bx + 16 + i * 3, by + 68, 2, 4);
+    ctx.fillRect(bx + 51 + i * 3, by + 68, 2, 4);
+  }
+
+  // HP bar
+  let hpPct = b.hp / b.maxHp;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(bx + 5, by - 18, 70, 10);
+  ctx.fillStyle = hpPct > 0.5 ? '#F44' : '#FF0';
+  ctx.fillRect(bx + 6, by - 17, 68 * hpPct, 8);
+  drawText('🐅 הנמר', bx + 40, by - 30, 14, '#FFF', 'center', true);
+}
+
+// ============ PARTICLES ============
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 6,
+      vy: -Math.random() * 5 - 2,
+      life: 1,
+      color,
+      size: 2 + Math.random() * 4
+    });
+  }
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.15;
+    p.life -= 0.02;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x - camera.x, p.y - camera.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ============ THROWN ITEMS ============
+function throwItemsAtBoss() {
+  if (!boss || (player.diamonds === 0 && player.stars === 0)) return;
+  player.throwing = true;
+  player.throwTimer = 60;
+
+  let total = player.diamonds + player.stars;
+  for (let i = 0; i < total; i++) {
+    let isDiamond = i < player.diamonds;
+    thrownItems.push({
+      x: player.x + player.width / 2,
+      y: player.y,
+      targetX: boss.x + 40,
+      targetY: boss.y + 25,
+      type: isDiamond ? 'diamond' : 'star',
+      progress: 0,
+      delay: i * 3,
+      hit: false
+    });
+  }
+
+  boss.hp -= (player.diamonds * 2 + player.stars);
+  player.diamonds = 0;
+  player.stars = 0;
+}
+
+function updateThrownItems() {
+  for (let i = thrownItems.length - 1; i >= 0; i--) {
+    let t = thrownItems[i];
+    if (t.delay > 0) { t.delay--; continue; }
+    t.progress += 0.04;
+    if (t.progress >= 1 && !t.hit) {
+      t.hit = true;
+      spawnParticles(t.targetX, t.targetY, t.type === 'diamond' ? '#00D4FF' : '#FFD700', 8);
+      screenShake = 5;
+    }
+    if (t.progress >= 1.2) thrownItems.splice(i, 1);
+  }
+}
+
+function drawThrownItems() {
+  thrownItems.forEach(t => {
+    if (t.delay > 0 || t.hit) return;
+    let px = t.x + (t.targetX - t.x) * t.progress;
+    let py = t.y + (t.targetY - t.y) * t.progress - Math.sin(t.progress * Math.PI) * 80;
+    let sx = px - camera.x;
+    let sy = py - camera.y;
+
+    if (t.type === 'diamond') {
+      ctx.fillStyle = '#00D4FF';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 6);
+      ctx.lineTo(sx + 5, sy);
+      ctx.lineTo(sx, sy + 6);
+      ctx.lineTo(sx - 5, sy);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#FFD700';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}
+
+// ============ BACKGROUND ============
+function drawBackground() {
+  // Sky gradient
+  let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  if (gameState === STATE.BOSS_FIGHT) {
+    grad.addColorStop(0, '#1A0000');
+    grad.addColorStop(0.5, '#3A0A0A');
+    grad.addColorStop(1, '#0A0A00');
+  } else if (gameState === STATE.PLAYING) {
+    grad.addColorStop(0, '#0B0B3B');
+    grad.addColorStop(0.4, '#1A1A5C');
+    grad.addColorStop(1, '#0D2B1D');
+  } else {
+    grad.addColorStop(0, '#0a0a2e');
+    grad.addColorStop(1, '#1a1a4e');
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (gameState === STATE.PLAYING || gameState === STATE.BOSS_FIGHT) {
+    // Stars in sky
+    for (let i = 0; i < 60; i++) {
+      let sx = ((i * 137 + 50) % canvas.width + canvas.width) % canvas.width;
+      let sy = (i * 73 + 20) % (canvas.height * 0.4);
+      let blink = 0.3 + Math.sin(Date.now() * 0.002 + i) * 0.3;
+      ctx.fillStyle = `rgba(255,255,255,${blink})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Trees (parallax)
+    for (let i = 0; i < 30; i++) {
+      let tx = (i * 300 - camera.x * 0.3) % (canvas.width + 300);
+      if (tx < -100) tx += canvas.width + 300;
+      let ty = canvas.height - GROUND_Y_OFFSET - 50 - (i % 3) * 30;
+      ctx.fillStyle = `rgba(10, ${30 + (i % 3) * 10}, 15, 0.7)`;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + 25, ty - 60 - (i % 3) * 20);
+      ctx.lineTo(tx + 50, ty);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(50, 30, 10, 0.8)';
+      ctx.fillRect(tx + 20, ty, 10, 20);
+    }
+
+    // Moon
+    ctx.fillStyle = 'rgba(255, 255, 200, 0.8)';
+    ctx.beginPath();
+    ctx.arc(canvas.width - 100, 80, 35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(canvas.width - 88, 75, 30, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ============ HUD ============
+function drawHUD() {
+  // Top bar
+  drawRoundRect(10, 10, 240, 50, 12, 'rgba(0,0,0,0.6)');
+
+  // HP
+  drawText('❤️', 30, 26, 16, '#F44', 'center');
+  for (let i = 0; i < player.maxHp; i++) {
+    ctx.fillStyle = i < player.hp ? '#F44' : '#444';
+    ctx.fillRect(45 + i * 22, 18, 18, 14);
+    ctx.strokeStyle = '#F88';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(45 + i * 22, 18, 18, 14);
+  }
+
+  // Collectibles
+  drawText('💎 ' + player.diamonds, 55, 48, 15, '#00D4FF', 'left', true);
+  drawText('⭐ ' + player.stars, 135, 48, 15, '#FFD700', 'left', true);
+
+  // Progress bar
+  if (gameState === STATE.PLAYING) {
+    let progress = Math.min(player.x / (levelLength - 500), 1);
+    drawRoundRect(canvas.width - 220, 15, 200, 18, 9, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = '#4CAF50';
+    ctx.beginPath();
+    ctx.roundRect(canvas.width - 219, 16, Math.max(198 * progress, 10), 16, 8);
+    ctx.fill();
+    drawText('🐅', canvas.width - 25, 24, 14, '#FFF', 'center');
+    drawText('🏠', canvas.width - 218, 24, 12, '#FFF', 'center');
+  }
+}
+
+// ============ STORY SCREENS ============
+function drawStoryScreen() {
+  drawBackground();
+
+  let currentStory = storyPages[storyPage];
+  if (!currentStory) return;
+
+  // Dark overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Story box
+  let boxW = Math.min(700, canvas.width - 40);
+  let boxH = Math.min(420, canvas.height - 60);
+  let boxX = (canvas.width - boxW) / 2;
+  let boxY = (canvas.height - boxH) / 2;
+
+  // Animated border
+  let borderGlow = Math.sin(Date.now() * 0.003) * 0.3 + 0.5;
+  ctx.shadowColor = `rgba(100, 150, 255, ${borderGlow})`;
+  ctx.shadowBlur = 20;
+  drawRoundRect(boxX, boxY, boxW, boxH, 16, 'rgba(10, 10, 40, 0.92)', `rgba(100, 150, 255, ${borderGlow})`);
+  ctx.shadowBlur = 0;
+
+  // Title
+  if (storyPage === 0) {
+    drawText('🔍 המסע אחרי הנמר 🐅', canvas.width / 2, boxY + 40, 28, '#FFD700', 'center', true);
+  } else {
+    drawText('😱 הגילוי המזעזע', canvas.width / 2, boxY + 40, 28, '#FF6644', 'center', true);
+  }
+
+  // Story text
+  let lines = currentStory.lines;
+  let lineH = 32;
+  let startY = boxY + 85;
+  lines.forEach((line, i) => {
+    let alpha = Math.min(1, Math.max(0, (storyTimer - i * 15) / 15));
+    ctx.globalAlpha = alpha;
+    drawText(line, canvas.width / 2, startY + i * lineH, 18, '#DDE', 'center');
+  });
+  ctx.globalAlpha = 1;
+
+  // Continue prompt
+  if (storyTimer > lines.length * 15 + 20) {
+    let promptAlpha = 0.5 + Math.sin(Date.now() * 0.005) * 0.4;
+    ctx.globalAlpha = promptAlpha;
+    drawText(isTouchDevice ? '👆 לחצו להמשיך' : '🖱️ לחצו להמשיך', canvas.width / 2, boxY + boxH - 30, 16, '#AAF', 'center');
+    ctx.globalAlpha = 1;
+  }
+
+  // Characters at bottom
+  if (storyPage === 0) {
+    let cx = canvas.width / 2;
+    drawVillager(cx - 80, boxY + boxH - 90, 40, 50, true);
+    drawJJ(cx - 20, boxY + boxH - 87, 36, 46, true);
+    // Mickey (alive)
+    ctx.fillStyle = '#888';
+    ctx.beginPath();
+    ctx.arc(cx + 55, boxY + boxH - 63, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#AAA';
+    ctx.beginPath();
+    ctx.arc(cx + 45, boxY + boxH - 78, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 65, boxY + boxH - 78, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(cx + 52, boxY + boxH - 66, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 58, boxY + boxH - 66, 2, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawInstructionScreen() {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  let boxW = Math.min(600, canvas.width - 40);
+  let boxH = 350;
+  let boxX = (canvas.width - boxW) / 2;
+  let boxY = (canvas.height - boxH) / 2;
+
+  drawRoundRect(boxX, boxY, boxW, boxH, 16, 'rgba(10, 10, 40, 0.95)', 'rgba(100, 200, 100, 0.5)');
+
+  drawText('🎮 איך משחקים?', canvas.width / 2, boxY + 35, 24, '#4CAF50', 'center', true);
+
+  instructionLines.forEach((line, i) => {
+    drawText(line, canvas.width / 2, boxY + 80 + i * 36, 17, '#DDE', 'center');
+  });
+}
+
+// ============ WIN / GAME OVER ============
+function drawWinScreen() {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Celebration particles
+  if (Math.random() > 0.7) {
+    let colors = ['#FFD700', '#00D4FF', '#FF6644', '#4CAF50', '#FF44FF'];
+    spawnParticles(
+      Math.random() * canvas.width, Math.random() * canvas.height * 0.5,
+      colors[Math.floor(Math.random() * colors.length)], 3
+    );
+  }
+  drawParticles();
+
+  drawText('🎉 ניצחתם את הנמר! 🎉', canvas.width / 2, canvas.height / 2 - 60, 36, '#FFD700', 'center', true);
+  drawText('הצדק הושג — מייקי ינוח בשלום 😵', canvas.width / 2, canvas.height / 2, 22, '#DDE', 'center', true);
+  drawText('וילג׳ר 🥹 וג׳יי ג׳יי 😂 הם גיבורים!', canvas.width / 2, canvas.height / 2 + 40, 20, '#AAF', 'center', true);
+
+  let promptAlpha = 0.5 + Math.sin(Date.now() * 0.005) * 0.4;
+  ctx.globalAlpha = promptAlpha;
+  drawText('לחצו לשחק שוב', canvas.width / 2, canvas.height / 2 + 100, 18, '#4CAF50', 'center');
+  ctx.globalAlpha = 1;
+}
+
+function drawGameOverScreen() {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  drawText('💀 נפלתם בקרב!', canvas.width / 2, canvas.height / 2 - 40, 32, '#F44', 'center', true);
+  drawText('אבל גיבורים אמיתיים לא מוותרים!', canvas.width / 2, canvas.height / 2 + 10, 20, '#DDE', 'center', true);
+
+  let promptAlpha = 0.5 + Math.sin(Date.now() * 0.005) * 0.4;
+  ctx.globalAlpha = promptAlpha;
+  drawText('לחצו לנסות שוב', canvas.width / 2, canvas.height / 2 + 60, 18, '#FF8844', 'center');
+  ctx.globalAlpha = 1;
+
+}
+
+// ============ PHYSICS & UPDATE ============
+function updateGame() {
+  if (gameState === STATE.STORY_INTRO || gameState === STATE.STORY_DISCOVERY) {
+    storyTimer++;
+    return;
+  }
+
+  if (gameState !== STATE.PLAYING && gameState !== STATE.BOSS_FIGHT) return;
+
+  // Player movement
+  let moveLeft = keys['ArrowLeft'] || keys['a'] || keys['A'] || touchState.left;
+  let moveRight = keys['ArrowRight'] || keys['d'] || keys['D'] || touchState.right;
+  let jump = keys['ArrowUp'] || keys['w'] || keys['W'] || keys[' '] || touchState.jump;
+
+  if (moveLeft) { player.vx = -MOVE_SPEED; player.facingRight = false; }
+  else if (moveRight) { player.vx = MOVE_SPEED; player.facingRight = true; }
+  else { player.vx *= 0.7; }
+
+  if (jump && player.grounded) {
+    player.vy = JUMP_FORCE;
+    player.grounded = false;
+  }
+
+  // Gravity
+  player.vy += GRAVITY;
+  player.x += player.vx;
+  player.y += player.vy;
+
+  // Platform collision
+  player.grounded = false;
+  platforms.forEach(p => {
+    if (player.x + player.width > p.x && player.x < p.x + p.w) {
+      if (player.y + player.height >= p.y && player.y + player.height <= p.y + p.h + 10 && player.vy >= 0) {
+        player.y = p.y - player.height;
+        player.vy = 0;
+        player.grounded = true;
+      }
+    }
+  });
+
+  // Keep player in bounds
+  if (player.x < 0) player.x = 0;
+  if (player.y > canvas.height + 100) {
+    player.hp = 0;
+  }
+
+  // Invincibility timer
+  if (player.invincible > 0) player.invincible -= 0.016;
+
+  // Collectibles
+  collectibles.forEach(c => {
+    if (c.collected) return;
+    let dx = player.x + player.width/2 - c.x;
+    let dy = player.y + player.height/2 - c.y;
+    if (Math.sqrt(dx*dx + dy*dy) < 40) {
+      c.collected = true;
+      if (c.type === 'heart') {
+        player.hp = Math.min(player.hp + 1, player.maxHp);
+        spawnParticles(c.x, c.y, '#FF3366', 12);
+      } else if (c.type === 'diamond') {
+        player.diamonds++;
+        spawnParticles(c.x, c.y, '#00D4FF', 10);
+      } else {
+        player.stars++;
+        spawnParticles(c.x, c.y, '#FFD700', 10);
+      }
+    }
+  });
+
+  // Enemies — check invincible once, only allow ONE hit per frame
+  let hitThisFrame = false;
+  enemies.forEach(e => {
+    if (!e.alive) return;
+    e.x += e.vx;
+    if (Math.abs(e.x - e.startX) > e.range) e.vx *= -1;
+
+    if (!hitThisFrame && player.invincible <= 0) {
+      if (player.x + player.width > e.x && player.x < e.x + e.width &&
+          player.y + player.height > e.y && player.y < e.y + e.height) {
+        player.hp = Math.max(0, player.hp - 1);
+        player.invincible = 1.5;
+        player.vy = -8;
+        screenShake = 8;
+        hitThisFrame = true;
+        spawnParticles(player.x + player.width/2, player.y + player.height/2, '#F44', 12);
+      }
+    }
+  });
+
+  // Knives — also respect single-hit-per-frame
+  knives.forEach(k => {
+    let ky = k.y + Math.sin(Date.now() * 0.003 + k.bobOffset) * 3;
+    if (!hitThisFrame && player.invincible <= 0) {
+      if (player.x + player.width > k.x && player.x < k.x + k.width &&
+          player.y + player.height > ky && player.y < ky + k.height) {
+        player.hp = Math.max(0, player.hp - 1);
+        player.invincible = 1.5;
+        player.vy = -6;
+        screenShake = 6;
+        hitThisFrame = true;
+        spawnParticles(k.x + 6, ky + 15, '#F44', 8);
+      }
+    }
+  });
+
+  // Check for boss zone
+  if (gameState === STATE.PLAYING && player.x > levelLength - 600) {
+    gameState = STATE.BOSS_FIGHT;
+    if (!boss) {
+      boss = {
+        x: levelLength - 300,
+        y: canvas.height - GROUND_Y_OFFSET - 72,
+        hp: 20,
+        maxHp: 20,
+        vx: 2,
+        range: 150,
+        startX: levelLength - 350
+      };
+    }
+  }
+
+  // Boss behavior
+  if (boss && gameState === STATE.BOSS_FIGHT) {
+    boss.x += boss.vx;
+    if (Math.abs(boss.x - boss.startX) > boss.range) boss.vx *= -1;
+
+    // Boss attacks player
+    if (!hitThisFrame && player.invincible <= 0) {
+      let dx = player.x + player.width/2 - (boss.x + 40);
+      let dy = player.y + player.height/2 - (boss.y + 35);
+      if (Math.sqrt(dx*dx + dy*dy) < 55) {
+        player.hp = Math.max(0, player.hp - 2);
+        player.invincible = 2;
+        player.vy = -10;
+        player.vx = (player.x < boss.x ? -8 : 8);
+        screenShake = 12;
+        spawnParticles(player.x + player.width/2, player.y, '#F44', 15);
+      }
+    }
+
+    // Throw action (space on keyboard or action button)
+    let actionKey = keys[' '] || touchState.action;
+    if (actionKey && !player.throwing && (player.diamonds > 0 || player.stars > 0)) {
+      throwItemsAtBoss();
+    }
+
+    // Check boss death
+    if (boss.hp <= 0) {
+      gameState = STATE.WIN;
+      spawnParticles(boss.x + 40, boss.y + 30, '#FFD700', 40);
+      spawnParticles(boss.x + 40, boss.y + 30, '#FF6644', 30);
+      boss = null;
+    }
+  }
+
+  // Throw timer
+  if (player.throwing) {
+    player.throwTimer--;
+    if (player.throwTimer <= 0) player.throwing = false;
+  }
+
+  // Camera
+  camera.x = player.x - canvas.width / 3;
+  camera.y = 0;
+  if (camera.x < 0) camera.x = 0;
+
+  // Screen shake
+  if (screenShake > 0) {
+    camera.x += (Math.random() - 0.5) * screenShake;
+    camera.y += (Math.random() - 0.5) * screenShake;
+    screenShake *= 0.85;
+    if (screenShake < 0.5) screenShake = 0;
+  }
+
+  updateParticles();
+  updateThrownItems();
+
+  // Game over check
+  if (player.hp <= 0) {
+    gameState = STATE.GAME_OVER;
+  }
+}
+
+// ============ MAIN DRAW ============
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (gameState === STATE.STORY_INTRO || gameState === STATE.STORY_DISCOVERY) {
+    drawStoryScreen();
+    return;
+  }
+
+  if (gameState === 'instructions') {
+    drawInstructionScreen();
+    return;
+  }
+
+  if (gameState === STATE.WIN) {
+    drawWinScreen();
+    return;
+  }
+
+  if (gameState === STATE.GAME_OVER) {
+    drawGameOverScreen();
+    return;
+  }
+
+  drawBackground();
+
+  // Draw platforms
+  platforms.forEach(p => {
+    let px = p.x - camera.x;
+    let py = p.y - camera.y;
+    if (px > canvas.width + 50 || px + p.w < -50) return;
+    if (p.type === 'ground') {
+      ctx.fillStyle = '#2A5A1A';
+      ctx.fillRect(px, py, p.w, p.h);
+      // Grass on top
+      ctx.fillStyle = '#4CAF50';
+      ctx.fillRect(px, py, p.w, 6);
+      // Dirt details
+      ctx.fillStyle = '#3A3A1A';
+      for (let i = 0; i < p.w; i += 20) {
+        ctx.fillRect(px + i + 5, py + 15, 8, 3);
+      }
+    } else {
+      ctx.fillStyle = '#4A3A2A';
+      ctx.fillRect(px, py, p.w, p.h);
+      ctx.fillStyle = '#5A8A3A';
+      ctx.fillRect(px, py, p.w, 4);
+    }
+  });
+
+  // Draw collectibles
+  collectibles.forEach(c => drawCollectible(c));
+
+  // Draw knives
+  knives.forEach(k => drawKnife(k));
+
+  // Draw enemies
+  enemies.forEach(e => { if (e.alive) drawEnemy(e); });
+
+  // Draw player
+  drawPlayer(player);
+
+  // Draw boss
+  if (boss) drawBoss(boss);
+
+  // Draw thrown items
+  drawThrownItems();
+
+  // Draw particles
+  drawParticles();
+
+  // HUD
+  drawHUD();
+
+  // Boss fight instructions
+  if (gameState === STATE.BOSS_FIGHT && boss) {
+    let instructAlpha = 0.6 + Math.sin(Date.now() * 0.004) * 0.3;
+    ctx.globalAlpha = instructAlpha;
+    let throwText = isTouchDevice ? '⚡ לחצו על כפתור הברק!' : '[ רווח ] זרקו יהלומים וכוכבים!';
+    drawText(throwText, canvas.width / 2, canvas.height - 30, 18, '#FFD700', 'center', true);
+    drawText(`💎 ${player.diamonds}  ⭐ ${player.stars}`, canvas.width / 2, canvas.height - 55, 16, '#FFF', 'center', true);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ============ GAME LOOP ============
+function gameLoop() {
+  updateGame();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// ============ INPUT HANDLERS ============
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key === ' ') e.preventDefault();
+});
+
+window.addEventListener('keyup', e => {
+  keys[e.key] = false;
+});
+
+// Click/tap handler
+canvas.addEventListener('click', handleClick);
+canvas.addEventListener('touchend', handleClick);
+
+function handleClick(e) {
+  e.preventDefault();
+  if (gameState === STATE.STORY_INTRO) {
+    let currentStory = storyPages[0];
+    if (storyTimer > currentStory.lines.length * 15 + 20) {
+      storyPage = 1;
+      storyTimer = 0;
+      gameState = STATE.STORY_DISCOVERY;
+    }
+  } else if (gameState === STATE.STORY_DISCOVERY) {
+    let currentStory = storyPages[1];
+    if (storyTimer > currentStory.lines.length * 15 + 20) {
+      gameState = 'instructions';
+    }
+  } else if (gameState === 'instructions') {
+    gameState = STATE.PLAYING;
+    generateLevel();
+  } else if (gameState === STATE.GAME_OVER) {
+    // Restart directly into gameplay — no story replay
+    gameState = STATE.PLAYING;
+    generateLevel();
+  } else if (gameState === STATE.WIN) {
+    gameState = STATE.STORY_INTRO;
+    storyPage = 0;
+    storyTimer = 0;
+  }
+}
+
+// Touch controls
+function setupTouchBtn(id, stateKey) {
+  let btn = document.getElementById(id);
+  btn.addEventListener('touchstart', e => { e.preventDefault(); touchState[stateKey] = true; btn.classList.add('active'); });
+  btn.addEventListener('touchend', e => { e.preventDefault(); touchState[stateKey] = false; btn.classList.remove('active'); });
+  btn.addEventListener('touchcancel', e => { touchState[stateKey] = false; btn.classList.remove('active'); });
+}
+
+setupTouchBtn('btn-left', 'left');
+setupTouchBtn('btn-right', 'right');
+setupTouchBtn('btn-jump', 'jump');
+setupTouchBtn('btn-action', 'action');
+
+// ============ START ============
+gameLoop();
+</script>
+</body>
+</html>

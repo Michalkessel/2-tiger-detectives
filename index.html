@@ -4,13 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>המסע אחרי הנמר - משחק בלשי</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;700&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   background: #0a0a2e;
   overflow: hidden;
   touch-action: none;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'SF Pro', 'Rubik', Tahoma, Geneva, Verdana, sans-serif;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -225,10 +228,10 @@ function generateLevel() {
   const zombieTypes = ['zombie', 'zombie_crawler', 'zombie_big', 'zombie_ghost'];
   // Divide level into zones: 0-25% easy, 25-50% medium, 50-75% hard, 75-100% very hard
   const enemyZones = [
-    { start: 0.05, end: 0.25, count: 5,  speedMax: 1.2 },
-    { start: 0.25, end: 0.50, count: 10, speedMax: 1.8 },
-    { start: 0.50, end: 0.75, count: 14, speedMax: 2.2 },
-    { start: 0.75, end: 0.92, count: 10, speedMax: 2.5 }
+    { start: 0.05, end: 0.25, count: 3,  speedMax: 1.2 },
+    { start: 0.25, end: 0.50, count: 7,  speedMax: 1.8 },
+    { start: 0.50, end: 0.75, count: 10, speedMax: 2.2 },
+    { start: 0.75, end: 0.92, count: 7,  speedMax: 2.5 }
   ];
   enemyZones.forEach(zone => {
     let zoneStart = zone.start * levelLength;
@@ -290,7 +293,7 @@ function generateLevel() {
 
 // ============ DRAWING HELPERS ============
 function drawText(text, x, y, size, color, align = 'center', stroke = false) {
-  ctx.font = `bold ${size}px 'Segoe UI', sans-serif`;
+  ctx.font = `bold ${size}px 'SF Pro', 'Rubik', sans-serif`;
   ctx.textAlign = align;
   ctx.textBaseline = 'middle';
   if (stroke) {
@@ -344,7 +347,7 @@ function drawJJ(x, y, w, h, facingRight) {
   ctx.arc(x + w/2, y + 12, 14, 0, Math.PI * 2);
   ctx.fill();
   // Hair
-  ctx.fillStyle = '#222';
+  ctx.fillStyle = '#CC2222';
   ctx.beginPath();
   ctx.arc(x + w/2, y + 6, 14, Math.PI, 0);
   ctx.fill();

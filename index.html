@@ -114,7 +114,7 @@ let camera = { x: 0, y: 0 };
 // Level
 const GRAVITY = 0.6;
 const JUMP_FORCE = -13;
-const MOVE_SPEED = 5;
+const MOVE_SPEED = 3;
 const GROUND_Y_OFFSET = 120;
 
 let platforms = [];
@@ -162,7 +162,7 @@ const instructionLines = [
   "⌨️ חצים / WASD — תזוזה וקפיצה",
   "📱 כפתורים על המסך בטאבלט",
   "💎 אספו יהלומים וכוכבים!",
-  "⚠️ היזהרו מחיות ומסכינים!",
+  "⚠️ היזהרו מזומבים ומסכינים!",
   "🐅 כשתמצאו את הנמר — לחצו רווח!",
   "",
   "▶ להתחיל"
@@ -222,7 +222,7 @@ function generateLevel() {
   }
 
   // Enemies with gradual difficulty — sparse at start, dense near boss
-  const animalTypes = ['snake', 'spider', 'wolf', 'bat'];
+  const zombieTypes = ['zombie', 'zombie_crawler', 'zombie_big', 'zombie_ghost'];
   // Divide level into zones: 0-25% easy, 25-50% medium, 50-75% hard, 75-100% very hard
   const enemyZones = [
     { start: 0.05, end: 0.25, count: 5,  speedMax: 1.2 },
@@ -237,8 +237,8 @@ function generateLevel() {
     for (let i = 0; i < zone.count; i++) {
       let ex = zoneStart + Math.random() * zoneLen;
       let ey = groundY - 30;
-      let type = animalTypes[Math.floor(Math.random() * animalTypes.length)];
-      if (type === 'bat') ey = groundY - 100 - Math.random() * 120;
+      let type = zombieTypes[Math.floor(Math.random() * zombieTypes.length)];
+      if (type === 'zombie_ghost') ey = groundY - 100 - Math.random() * 120;
       enemies.push({
         x: ex, y: ey,
         type: type,
@@ -381,98 +381,150 @@ function drawPlayer(p) {
   drawJJ(jjx, jjy, p.width - 4, p.height - 4, p.facingRight);
 }
 
-// ============ ENEMY DRAWING ============
+// ============ ENEMY DRAWING (ZOMBIES) ============
 function drawEnemy(e) {
   let ex = e.x - camera.x;
   let ey = e.y - camera.y;
   if (ex < -50 || ex > canvas.width + 50) return;
 
   e.animTimer += 0.05;
+  let wobble = Math.sin(e.animTimer * 2) * 2;
 
   switch(e.type) {
-    case 'snake':
-      ctx.fillStyle = '#2D8B2D';
-      for (let i = 0; i < 5; i++) {
-        let sx2 = ex + i * 8;
-        let sy2 = ey + Math.sin(e.animTimer + i * 0.8) * 4;
-        ctx.beginPath();
-        ctx.arc(sx2, sy2 + 15, 6 - i * 0.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#F00';
-      ctx.fillRect(ex - 3, ey + 12, 6, 2); // tongue
-      ctx.fillStyle = '#FF0';
-      ctx.beginPath(); ctx.arc(ex + 2, ey + 10, 2, 0, Math.PI * 2); ctx.fill();
-      break;
-    case 'spider':
-      ctx.fillStyle = '#1A1A1A';
-      ctx.beginPath();
-      ctx.arc(ex + 15, ey + 15, 12, 0, Math.PI * 2);
-      ctx.fill();
-      // Legs
-      for (let i = 0; i < 4; i++) {
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
-        let angle = (i / 4) * Math.PI - Math.PI * 0.2;
-        ctx.beginPath();
-        ctx.moveTo(ex + 15, ey + 15);
-        let legLen = 18 + Math.sin(e.animTimer + i) * 3;
-        ctx.lineTo(ex + 15 + Math.cos(angle) * legLen, ey + 15 + Math.sin(angle) * legLen);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(ex + 15, ey + 15);
-        ctx.lineTo(ex + 15 - Math.cos(angle) * legLen, ey + 15 + Math.sin(angle) * legLen);
-        ctx.stroke();
-      }
-      // Eyes (8 eyes!)
-      ctx.fillStyle = '#F22';
-      for (let i = 0; i < 4; i++) {
-        ctx.beginPath();
-        ctx.arc(ex + 10 + i * 4, ey + 10, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      break;
-    case 'wolf':
-      ctx.fillStyle = '#555';
-      ctx.fillRect(ex, ey + 5, 35, 22);
+    case 'zombie': {
+      // Regular zombie — walking undead
       // Head
-      ctx.fillStyle = '#666';
-      let headX = e.vx > 0 ? ex + 28 : ex - 5;
+      ctx.fillStyle = '#5A8A4A';
       ctx.beginPath();
-      ctx.arc(headX + 5, ey + 10, 10, 0, Math.PI * 2);
+      ctx.arc(ex + 17, ey + 8, 10, 0, Math.PI * 2);
       ctx.fill();
-      // Eye
-      ctx.fillStyle = '#FF4444';
-      ctx.beginPath();
-      ctx.arc(headX + (e.vx > 0 ? 9 : 1), ey + 8, 3, 0, Math.PI * 2);
-      ctx.fill();
-      // Legs
-      ctx.fillStyle = '#444';
-      ctx.fillRect(ex + 3, ey + 25, 5, 10);
-      ctx.fillRect(ex + 26, ey + 25, 5, 10);
+      // Eyes (glowing red)
+      ctx.fillStyle = '#FF2222';
+      ctx.beginPath(); ctx.arc(ex + 13, ey + 6, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + 21, ey + 6, 2.5, 0, Math.PI * 2); ctx.fill();
+      // Mouth
+      ctx.fillStyle = '#220000';
+      ctx.fillRect(ex + 12, ey + 13, 10, 3);
+      ctx.fillStyle = '#FFF';
+      ctx.fillRect(ex + 13, ey + 13, 2, 3);
+      ctx.fillRect(ex + 19, ey + 13, 2, 3);
+      // Body (torn shirt)
+      ctx.fillStyle = '#3A5A2A';
+      ctx.fillRect(ex + 8, ey + 17, 18, 14);
+      // Torn edges
+      ctx.fillStyle = '#2A4A1A';
+      ctx.fillRect(ex + 8, ey + 28, 5, 3);
+      ctx.fillRect(ex + 19, ey + 28, 7, 3);
+      // Arms (reaching out)
+      ctx.fillStyle = '#5A8A4A';
+      let armReach = 5 + Math.sin(e.animTimer * 3) * 3;
+      ctx.fillRect(ex + 26, ey + 18 + wobble, armReach + 6, 4);
+      ctx.fillRect(ex - armReach + 2, ey + 20 - wobble, armReach + 6, 4);
+      // Legs (shuffling)
+      ctx.fillStyle = '#334433';
+      let legOff = Math.sin(e.animTimer * 4) * 3;
+      ctx.fillRect(ex + 10, ey + 31, 6, 10 + legOff);
+      ctx.fillRect(ex + 19, ey + 31, 6, 10 - legOff);
       break;
-    case 'bat':
-      ctx.fillStyle = '#2A0A3A';
+    }
+    case 'zombie_crawler': {
+      // Crawling zombie — low to the ground, fast
+      ctx.fillStyle = '#6A7A3A';
+      // Body (horizontal)
+      ctx.fillRect(ex, ey + 18, 30, 10);
+      // Head
+      ctx.fillStyle = '#5A7A2A';
       ctx.beginPath();
-      ctx.arc(ex + 15, ey + 15, 8, 0, Math.PI * 2);
-      ctx.fill();
-      // Wings
-      let wingSpread = 15 + Math.sin(e.animTimer * 3) * 8;
-      ctx.beginPath();
-      ctx.moveTo(ex + 15, ey + 12);
-      ctx.lineTo(ex - wingSpread + 15, ey + 5);
-      ctx.lineTo(ex + 5, ey + 20);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(ex + 15, ey + 12);
-      ctx.lineTo(ex + wingSpread + 15, ey + 5);
-      ctx.lineTo(ex + 25, ey + 20);
+      ctx.arc(ex + (e.vx > 0 ? 30 : 0), ey + 18, 8, 0, Math.PI * 2);
       ctx.fill();
       // Eyes
-      ctx.fillStyle = '#F00';
-      ctx.beginPath(); ctx.arc(ex + 12, ey + 13, 2, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(ex + 18, ey + 13, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#FF0000';
+      let hx = e.vx > 0 ? ex + 30 : ex;
+      ctx.beginPath(); ctx.arc(hx - 3, ey + 16, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx + 3, ey + 16, 2, 0, Math.PI * 2); ctx.fill();
+      // Clawing arms
+      ctx.fillStyle = '#5A7A2A';
+      let claw = Math.sin(e.animTimer * 5) * 4;
+      ctx.fillRect(ex - 5 + claw, ey + 22, 8, 3);
+      ctx.fillRect(ex + 27 - claw, ey + 22, 8, 3);
+      // Blood trail
+      ctx.fillStyle = 'rgba(120, 0, 0, 0.3)';
+      ctx.fillRect(ex + 5, ey + 28, 20, 2);
       break;
+    }
+    case 'zombie_big': {
+      // Big zombie — larger, slower looking, intimidating
+      // Head
+      ctx.fillStyle = '#4A6A3A';
+      ctx.beginPath();
+      ctx.arc(ex + 20, ey + 4, 13, 0, Math.PI * 2);
+      ctx.fill();
+      // Scars
+      ctx.strokeStyle = '#2A3A1A';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ex + 14, ey - 2);
+      ctx.lineTo(ex + 20, ey + 5);
+      ctx.stroke();
+      // Eyes
+      ctx.fillStyle = '#FFFF00';
+      ctx.beginPath(); ctx.arc(ex + 15, ey + 2, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + 25, ey + 2, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(ex + 15, ey + 2, 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + 25, ey + 2, 1.5, 0, Math.PI * 2); ctx.fill();
+      // Mouth (open, scary)
+      ctx.fillStyle = '#1A0000';
+      ctx.beginPath();
+      ctx.arc(ex + 20, ey + 12, 5, 0, Math.PI);
+      ctx.fill();
+      // Big body
+      ctx.fillStyle = '#3A5A2A';
+      ctx.fillRect(ex + 5, ey + 16, 30, 18);
+      // Arms (thick)
+      ctx.fillStyle = '#4A6A3A';
+      let bigArm = Math.sin(e.animTimer * 2) * 3;
+      ctx.fillRect(ex - 2, ey + 17 + bigArm, 8, 6);
+      ctx.fillRect(ex + 34, ey + 17 - bigArm, 8, 6);
+      // Legs
+      ctx.fillStyle = '#2A3A1A';
+      ctx.fillRect(ex + 8, ey + 34, 8, 12);
+      ctx.fillRect(ex + 24, ey + 34, 8, 12);
+      break;
+    }
+    case 'zombie_ghost': {
+      // Ghost zombie — floats, translucent
+      let floatY = Math.sin(e.animTimer * 2) * 6;
+      ctx.globalAlpha = 0.6 + Math.sin(e.animTimer * 3) * 0.2;
+      // Ghostly body (flowing shape)
+      ctx.fillStyle = '#7ACC7A';
+      ctx.beginPath();
+      ctx.arc(ex + 17, ey + 10 + floatY, 12, 0, Math.PI * 2);
+      ctx.fill();
+      // Flowing bottom
+      ctx.beginPath();
+      ctx.moveTo(ex + 5, ey + 15 + floatY);
+      ctx.quadraticCurveTo(ex + 10, ey + 35 + floatY, ex + 5, ey + 38 + floatY);
+      ctx.lineTo(ex + 12, ey + 33 + floatY);
+      ctx.quadraticCurveTo(ex + 17, ey + 40 + floatY, ex + 22, ey + 33 + floatY);
+      ctx.lineTo(ex + 29, ey + 38 + floatY);
+      ctx.quadraticCurveTo(ex + 24, ey + 35 + floatY, ex + 29, ey + 15 + floatY);
+      ctx.fill();
+      // Eyes (hollow, glowing)
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(ex + 12, ey + 8 + floatY, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + 22, ey + 8 + floatY, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#AAFFAA';
+      ctx.beginPath(); ctx.arc(ex + 12, ey + 8 + floatY, 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + 22, ey + 8 + floatY, 1.5, 0, Math.PI * 2); ctx.fill();
+      // Mouth (open scream)
+      ctx.fillStyle = '#003300';
+      ctx.beginPath();
+      ctx.ellipse(ex + 17, ey + 17 + floatY, 4, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      break;
+    }
   }
 }
 
@@ -1048,7 +1100,7 @@ function drawGameOverScreen() {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  drawText('💀 החיות הרגו אותך!', canvas.width / 2, canvas.height / 2 - 40, 32, '#F44', 'center', true);
+  drawText('💀 הזומבים הרגו אותך!', canvas.width / 2, canvas.height / 2 - 40, 32, '#F44', 'center', true);
   drawText('אבל גיבורים אמיתיים לא מוותרים!', canvas.width / 2, canvas.height / 2 + 10, 20, '#DDE', 'center', true);
 
   let promptAlpha = 0.5 + Math.sin(Date.now() * 0.005) * 0.4;

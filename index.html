@@ -123,7 +123,7 @@ let enemies = [];
 let knives = [];
 let particles = [];
 let thrownItems = [];
-let levelLength = 8000;
+let levelLength = 20000;
 let bossSpawned = false;
 let boss = null;
 
@@ -165,7 +165,7 @@ const instructionLines = [
   "⚠️ היזהרו מחיות ומסכינים!",
   "🐅 כשתמצאו את הנמר — לחצו רווח!",
   "",
-  "לחצו להתחיל ▶"
+  "▶ להתחיל"
 ];
 
 // ============ LEVEL GENERATION ============
@@ -188,10 +188,10 @@ function generateLevel() {
 
   // Floating platforms — lower and easier at start, higher later
   const platZones = [
-    { start: 0.03, end: 0.30, count: 18, maxHeight: 70,  minWidth: 110 }, // easy: low, wide
-    { start: 0.30, end: 0.55, count: 16, maxHeight: 130, minWidth: 90 },  // medium
-    { start: 0.55, end: 0.80, count: 14, maxHeight: 180, minWidth: 80 },  // hard
-    { start: 0.80, end: 0.95, count: 10, maxHeight: 200, minWidth: 75 }   // very hard
+    { start: 0.03, end: 0.25, count: 35, maxHeight: 70,  minWidth: 110 }, // easy: low, wide
+    { start: 0.25, end: 0.50, count: 30, maxHeight: 130, minWidth: 90 },  // medium
+    { start: 0.50, end: 0.75, count: 25, maxHeight: 180, minWidth: 80 },  // hard
+    { start: 0.75, end: 0.95, count: 20, maxHeight: 200, minWidth: 75 }   // very hard
   ];
   platZones.forEach(zone => {
     let zoneStart = zone.start * levelLength;
@@ -205,7 +205,7 @@ function generateLevel() {
   });
 
   // Diamonds, stars, and hearts
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 200; i++) {
     let cx = 300 + Math.random() * (levelLength - 600);
     let cy = groundY - 40 - Math.random() * 250;
     let roll = Math.random();
@@ -225,10 +225,10 @@ function generateLevel() {
   const animalTypes = ['snake', 'spider', 'wolf', 'bat'];
   // Divide level into zones: 0-25% easy, 25-50% medium, 50-75% hard, 75-100% very hard
   const enemyZones = [
-    { start: 0.05, end: 0.25, count: 3,  speedMax: 1.2 },
-    { start: 0.25, end: 0.50, count: 5,  speedMax: 1.8 },
-    { start: 0.50, end: 0.75, count: 7,  speedMax: 2.2 },
-    { start: 0.75, end: 0.92, count: 5, speedMax: 2.5 }
+    { start: 0.05, end: 0.25, count: 5,  speedMax: 1.2 },
+    { start: 0.25, end: 0.50, count: 10, speedMax: 1.8 },
+    { start: 0.50, end: 0.75, count: 14, speedMax: 2.2 },
+    { start: 0.75, end: 0.92, count: 10, speedMax: 2.5 }
   ];
   enemyZones.forEach(zone => {
     let zoneStart = zone.start * levelLength;
@@ -254,9 +254,9 @@ function generateLevel() {
 
   // Knives — also gradual: none at start, more later
   const knifeZones = [
-    { start: 0.20, end: 0.50, count: 3 },
-    { start: 0.50, end: 0.75, count: 5 },
-    { start: 0.75, end: 0.92, count: 4 }
+    { start: 0.20, end: 0.50, count: 6 },
+    { start: 0.50, end: 0.75, count: 10 },
+    { start: 0.75, end: 0.92, count: 8 }
   ];
   knifeZones.forEach(zone => {
     let zoneStart = zone.start * levelLength;
@@ -335,8 +335,8 @@ function drawVillager(x, y, w, h, facingRight) {
 
 function drawJJ(x, y, w, h, facingRight) {
   const dir = facingRight ? 1 : -1;
-  // Body (blue shirt)
-  ctx.fillStyle = '#2266CC';
+  // Body (red shirt)
+  ctx.fillStyle = '#CC2222';
   ctx.fillRect(x + 8, y + 18, w - 16, h - 28);
   // Head
   ctx.fillStyle = '#E8C49A';
@@ -356,7 +356,7 @@ function drawJJ(x, y, w, h, facingRight) {
   ctx.fillStyle = '#C44';
   ctx.fillRect(x + w/2 - 2 + dir * 2, y + 17, 5, 2);
   // Legs
-  ctx.fillStyle = '#1A1A5C';
+  ctx.fillStyle = '#5C1A1A';
   ctx.fillRect(x + 10, y + h - 12, 8, 12);
   ctx.fillRect(x + w - 18, y + h - 12, 8, 12);
 }
@@ -705,9 +705,11 @@ function drawParticles() {
 function throwItemsAtBoss() {
   if (!boss || (player.diamonds === 0 && player.stars === 0)) return;
   player.throwing = true;
-  player.throwTimer = 60;
+  player.throwTimer = 90;
 
+  // Throw items one by one with longer delays for dramatic effect
   let total = player.diamonds + player.stars;
+  let damage = 0;
   for (let i = 0; i < total; i++) {
     let isDiamond = i < player.diamonds;
     thrownItems.push({
@@ -717,12 +719,14 @@ function throwItemsAtBoss() {
       targetY: boss.y + 25,
       type: isDiamond ? 'diamond' : 'star',
       progress: 0,
-      delay: i * 3,
-      hit: false
+      delay: i * 8, // longer delay between throws — more dramatic
+      hit: false,
+      damage: isDiamond ? 2 : 1
     });
+    damage += isDiamond ? 2 : 1;
   }
 
-  boss.hp -= (player.diamonds * 2 + player.stars);
+  // Damage is applied per-hit in updateThrownItems, not all at once
   player.diamonds = 0;
   player.stars = 0;
 }
@@ -731,9 +735,10 @@ function updateThrownItems() {
   for (let i = thrownItems.length - 1; i >= 0; i--) {
     let t = thrownItems[i];
     if (t.delay > 0) { t.delay--; continue; }
-    t.progress += 0.04;
+    t.progress += 0.03;
     if (t.progress >= 1 && !t.hit) {
       t.hit = true;
+      if (boss) boss.hp -= (t.damage || 1);
       spawnParticles(t.targetX, t.targetY, t.type === 'diamond' ? '#00D4FF' : '#FFD700', 8);
       screenShake = 5;
     }
@@ -904,7 +909,8 @@ function drawStoryScreen() {
   if (storyTimer > lines.length * 15 + 20) {
     let promptAlpha = 0.5 + Math.sin(Date.now() * 0.005) * 0.4;
     ctx.globalAlpha = promptAlpha;
-    drawText(isTouchDevice ? '👆 לחצו להמשיך' : '🖱️ לחצו להמשיך', canvas.width / 2, boxY + boxH - 30, 16, '#AAF', 'center');
+    let btnText = storyPage === 0 ? '▶ להמשיך לקרוא' : '▶ להתחיל';
+    drawText(btnText, canvas.width / 2, boxY + boxH - 30, 18, '#AAF', 'center');
     ctx.globalAlpha = 1;
   }
 
@@ -966,14 +972,75 @@ function drawWinScreen() {
   }
   drawParticles();
 
-  drawText('🎉 ניצחתם את הנמר! 🎉', canvas.width / 2, canvas.height / 2 - 60, 36, '#FFD700', 'center', true);
-  drawText('הצדק הושג — מייקי ינוח בשלום 😵', canvas.width / 2, canvas.height / 2, 22, '#DDE', 'center', true);
-  drawText('וילג׳ר 🥹 וג׳יי ג׳יי 😂 הם גיבורים!', canvas.width / 2, canvas.height / 2 + 40, 20, '#AAF', 'center', true);
+  // Draw Mickey as skeleton between Villager and JJ
+  let charY = canvas.height / 2 - 120;
+  let charCx = canvas.width / 2;
+  drawVillager(charCx - 90, charY, 40, 50, true);
+  drawMickeySkeleton(charCx - 20, charY + 5);
+  drawJJ(charCx + 40, charY + 3, 36, 46, false);
+
+  drawText('כל הכבוד לגיבורים וילג׳ר 🥹 וג׳יי ג׳יי 😂', canvas.width / 2, canvas.height / 2 - 30, 24, '#FFD700', 'center', true);
+  drawText('ניצחתם את הנמר! מייקי 💀 חזר אליכם!', canvas.width / 2, canvas.height / 2 + 10, 22, '#DDE', 'center', true);
 
   let promptAlpha = 0.5 + Math.sin(Date.now() * 0.005) * 0.4;
   ctx.globalAlpha = promptAlpha;
-  drawText('לחצו לשחק שוב', canvas.width / 2, canvas.height / 2 + 100, 18, '#4CAF50', 'center');
+  drawText('לחצו לשחק שוב', canvas.width / 2, canvas.height / 2 + 60, 18, '#4CAF50', 'center');
   ctx.globalAlpha = 1;
+}
+
+// Draw Mickey as a skeleton
+function drawMickeySkeleton(x, y) {
+  // Skull
+  ctx.fillStyle = '#E8E8E0';
+  ctx.beginPath();
+  ctx.arc(x + 15, y + 12, 14, 0, Math.PI * 2);
+  ctx.fill();
+  // Eye sockets (dark)
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(x + 10, y + 10, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 20, y + 10, 4, 0, Math.PI * 2); ctx.fill();
+  // Nose hole
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.moveTo(x + 15, y + 16);
+  ctx.lineTo(x + 13, y + 20);
+  ctx.lineTo(x + 17, y + 20);
+  ctx.closePath();
+  ctx.fill();
+  // Teeth
+  ctx.fillStyle = '#E8E8E0';
+  ctx.fillRect(x + 9, y + 22, 12, 5);
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + 11 + i * 3, y + 22);
+    ctx.lineTo(x + 11 + i * 3, y + 27);
+    ctx.stroke();
+  }
+  // Ribcage body
+  ctx.fillStyle = '#D8D8D0';
+  ctx.fillRect(x + 8, y + 28, 14, 18);
+  ctx.strokeStyle = '#AAA';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + 8, y + 32 + i * 5);
+    ctx.lineTo(x + 22, y + 32 + i * 5);
+    ctx.stroke();
+  }
+  // Bone legs
+  ctx.fillStyle = '#E8E8E0';
+  ctx.fillRect(x + 9, y + 46, 5, 14);
+  ctx.fillRect(x + 17, y + 46, 5, 14);
+  // Bone arms
+  ctx.fillRect(x + 1, y + 30, 7, 4);
+  ctx.fillRect(x + 22, y + 30, 7, 4);
+  // Ear bones (Mickey's round ears as skeleton)
+  ctx.strokeStyle = '#D8D8D0';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x + 5, y + 2, 6, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x + 25, y + 2, 6, 0, Math.PI * 2); ctx.stroke();
 }
 
 function drawGameOverScreen() {
@@ -981,12 +1048,12 @@ function drawGameOverScreen() {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  drawText('💀 נפלתם בקרב!', canvas.width / 2, canvas.height / 2 - 40, 32, '#F44', 'center', true);
+  drawText('💀 החיות הרגו אותך!', canvas.width / 2, canvas.height / 2 - 40, 32, '#F44', 'center', true);
   drawText('אבל גיבורים אמיתיים לא מוותרים!', canvas.width / 2, canvas.height / 2 + 10, 20, '#DDE', 'center', true);
 
   let promptAlpha = 0.5 + Math.sin(Date.now() * 0.005) * 0.4;
   ctx.globalAlpha = promptAlpha;
-  drawText('לחצו לנסות שוב', canvas.width / 2, canvas.height / 2 + 60, 18, '#FF8844', 'center');
+  drawText('▶ לנסות שוב', canvas.width / 2, canvas.height / 2 + 60, 20, '#FF8844', 'center');
   ctx.globalAlpha = 1;
 
 }
@@ -1103,8 +1170,8 @@ function updateGame() {
       boss = {
         x: levelLength - 300,
         y: canvas.height - GROUND_Y_OFFSET - 72,
-        hp: 20,
-        maxHp: 20,
+        hp: 60,
+        maxHp: 60,
         vx: 2,
         range: 150,
         startX: levelLength - 350
